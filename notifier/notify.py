@@ -3,14 +3,10 @@
 
 Polls GET /digest/today and fires a plain macOS notification via osascript.
 
-Activation (one-time, run as your user):
-    ln -sf /Users/ivan_tkachenko/Projects/personal/pacer/notifier/com.pacer.notifier.plist \
-           ~/Library/LaunchAgents/com.pacer.notifier.plist
-    launchctl load ~/Library/LaunchAgents/com.pacer.notifier.plist
-
-To reload after editing the plist:
-    launchctl unload ~/Library/LaunchAgents/com.pacer.notifier.plist
-    launchctl load   ~/Library/LaunchAgents/com.pacer.notifier.plist
+Activation (one-time): generate + load the launchd agent, which derives its
+schedule (DIGEST_TIME + 2 min) and paths from this checkout:
+    make install-notifier   # or: uv run python notifier/install_agent.py
+Re-run the same command after changing DIGEST_TIME to resync the schedule.
 """
 
 from __future__ import annotations

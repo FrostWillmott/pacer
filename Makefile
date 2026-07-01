@@ -1,11 +1,13 @@
-.PHONY: help install install-hooks check fix lint format typecheck test coverage pre-commit ci clean
+.PHONY: help install install-hooks install-notifier uninstall-notifier check fix lint format typecheck test coverage pre-commit ci clean
 
 help:
 	@echo "Project Commands"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make install       - Install dependencies with uv"
-	@echo "  make install-hooks - Install pre-commit hooks"
+	@echo "  make install           - Install dependencies with uv"
+	@echo "  make install-hooks     - Install pre-commit hooks"
+	@echo "  make install-notifier  - Install/refresh the macOS notifier agent (launchd)"
+	@echo "  make uninstall-notifier- Remove the macOS notifier agent"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  make check         - Run all checks (lint + format + types + tests)"
@@ -23,6 +25,12 @@ install:
 
 install-hooks:
 	uv run pre-commit install
+
+install-notifier:
+	uv run python notifier/install_agent.py
+
+uninstall-notifier:
+	uv run python notifier/install_agent.py --uninstall
 
 check: lint format typecheck test
 

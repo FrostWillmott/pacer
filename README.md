@@ -45,6 +45,9 @@ docker compose up -d
 
 # 3. Seed the two curated problem lists (NeetCode 150 + SQL 50)
 docker compose exec backend uv run python scripts/seed.py
+
+# 4. (macOS) Install the morning notification agent — see below
+make install-notifier
 ```
 
 The frontend is then served at `http://localhost:8000/` (a single read-only page),
@@ -78,14 +81,18 @@ All tunables live in `.env` (see `.env.example`):
 
 The notifier can't live in Docker — macOS Notification Center is a host-level API.
 It polls `GET /digest/today` and fires a notification via `osascript`, driven by
-`launchd`. One-time activation (run as your user, after editing the paths in
-`notifier/com.pacer.notifier.plist` to match your checkout):
+`launchd`, and stays silent on days with nothing due.
+
+One-time activation generates the launchd agent from this checkout and loads it —
+its schedule (`DIGEST_TIME` + 2 min) and paths are derived automatically, nothing
+to hand-edit:
 
 ```bash
-ln -sf "$(pwd)/notifier/com.pacer.notifier.plist" \
-       ~/Library/LaunchAgents/com.pacer.notifier.plist
-launchctl load ~/Library/LaunchAgents/com.pacer.notifier.plist
+make install-notifier      # or: uv run python notifier/install_agent.py
 ```
+
+Re-run `make install-notifier` after changing `DIGEST_TIME` to resync the fire
+time. To remove it: `make uninstall-notifier`.
 
 ## Development
 
