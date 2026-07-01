@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pacer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e0e0e0; padding: 2rem; max-width: 720px; margin: auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 2rem; color: #fff; letter-spacing: 0.05em; }
+  h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; }
+  section { margin-bottom: 2rem; }
+  .empty { color: #555; font-style: italic; }
+  .card { border: 1px solid #2a2a2a; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem; }
+  .card a { color: #e0e0e0; text-decoration: none; font-weight: 500; }
+  .card a:hover { color: #7aa8ff; }
+  .badge { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0; }
+  .badge-algo { background: #1a3a5c; color: #7aa8ff; }
+  .badge-sql  { background: #1a3a2a; color: #5fba82; }
+  .badge-easy   { background: #1a3a2a; color: #5fba82; }
+  .badge-medium { background: #3a2a00; color: #f0a040; }
+  .badge-hard   { background: #3a1a1a; color: #e05050; }
+  .meta { font-size: 0.8rem; color: #666; margin-left: auto; flex-shrink: 0; }
+  .caption { font-size: 0.8rem; color: #555; margin-top: 0.25rem; }
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .stats-box { border: 1px solid #2a2a2a; border-radius: 8px; padding: 0.75rem 1rem; }
+  .stats-box h3 { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.5rem; }
+  .stats-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 2px 0; }
+  .stats-row .label { color: #888; }
+  .stats-row .value { font-weight: 600; }
+  #error { color: #e05050; padding: 1rem; border: 1px solid #3a1a1a; border-radius: 8px; }
+</style>
+</head>
+<body>
+<h1>pacer</h1>
+<div id="error" style="display:none"></div>
+
+<section id="section-new">
+  <h2>Today — New</h2>
+  <div id="new-list"><span class="empty">loading…</span></div>
+</section>
+
+<section id="section-review">
+  <h2>Today — Review</h2>
+  <div id="review-list"><span class="empty">loading…</span></div>
+  <p id="review-caption" class="caption"></p>
+</section>
+
+<section id="section-progress">
+  <h2>Progress</h2>
+  <div class="stats-grid" id="stats-grid"></div>
+</section>
+
+<script>
+async function load() {
+  try {
+    const [digest, summary] = await Promise.all([
+      fetch('/digest/today').then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
+      fetch('/progress/summary').then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
+    ]);
+    renderDigest(digest);
+    renderSummary(summary);
+  } catch (e) {
+    document.getElementById('error').style.display = '';
+    document.getElementById('error').textContent = 'Error loading data: ' + e.message;
+  }
+}
+
+function problemCard(p) {
+  return `<div class="card">
+    <span class="badge badge-${p.track}">${p.track}</span>
+    <a href="${p.url}" target="_blank" rel="noopener">${p.title}</a>
+    <span class="badge badge-${p.difficulty} meta">${p.difficulty}</span>
+  </div>`;
+}
+
+function renderDigest(d) {
+  const newEl = document.getElementById('new-list');
+  const newProblems = [...(d.new.algo || []), ...(d.new.sql || [])];
+  newEl.innerHTML = newProblems.length
+    ? newProblems.map(problemCard).join('')
+    : '<span class="empty">Nothing new today — well done.</span>';
+
+  const reviewEl = document.getElementById('review-list');
+  reviewEl.innerHTML = d.review.length
+    ? d.review.map(problemCard).join('')
+    : '<span class="empty">No reviews due.</span>';
+
+  const cap = document.getElementById('review-caption');
+  if (d.review_overdue_total > d.review.length) {
+    cap.textContent = `Showing ${d.review.length} of ${d.review_overdue_total} overdue — oldest first.`;
+  }
+}
+
+function renderSummary(s) {
+  const grid = document.getElementById('stats-grid');
+  const tracks = ['algo', 'sql'];
+  const statuses = ['introduced', 'learning', 'maintenance'];
+  grid.innerHTML = tracks.map(track => {
+    const by = s.by_status[track] || {};
+    const unintro = (s.unintroduced[track] || 0);
+    const rows = [
+      `<div class="stats-row"><span class="label">not started</span><span class="value">${unintro}</span></div>`,
+      ...statuses.map(st =>
+        `<div class="stats-row"><span class="label">${st}</span><span class="value">${by[st] || 0}</span></div>`
+      ),
+    ].join('');
+    return `<div class="stats-box"><h3>${track.toUpperCase()}</h3>${rows}</div>`;
+  }).join('');
+}
+
+load();
+</script>
+</body>
+</html>
