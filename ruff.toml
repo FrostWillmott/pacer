@@ -1,0 +1,66 @@
+# Standalone ruff config — kept separate from pyproject.toml on purpose so it
+# versions independently. ruff auto-discovers ruff.toml in the project root.
+#
+# After any ruff upgrade, run `ruff check`: rule codes get renamed/removed
+# between versions and ruff will report unknown codes.
+#
+# Modelled on a real production config. Note two things this template gets right
+# that a default-generated config usually doesn't:
+#   1. Every `ignore` entry says WHY (so the next reader/agent doesn't "fix" it).
+#   2. per-file-ignores for non-ASCII prompt files (RUF001) — see ai-engineering.md.
+
+exclude = [
+    ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv",
+    "__pycache__", "build", "dist", "venv",
+    "alembic/versions",   # generated migrations
+]
+
+# Must be explicit: a standalone ruff.toml does NOT inherit requires-python from
+# pyproject.toml, so without this ruff guesses the wrong modernization target.
+target-version = "py312"
+line-length = 88
+
+[lint]
+# `select`, not `extend-select`: an explicit fixed set you control, so the rule
+# set doesn't drift as ruff's curated baseline changes between versions.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes (real bugs: undefined names, unused imports)
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade — modern syntax for target-version
+    "B",    # flake8-bugbear (incl. mutable defaults)
+    "ASYNC",# blocking calls inside async
+    "S",    # flake8-bandit — common security issues
+    "C4",   # flake8-comprehensions
+    "RUF",  # ruff-specific rules
+]
+
+# Every ignore states its reason. Add/remove per project; don't carry blindly.
+ignore = [
+    "E501",   # line length is the formatter's job, not a lint error
+    "B008",   # function call in default arg — required by FastAPI Depends()
+    "RUF012", # mutable class attributes — SQLAlchemy declarative models trip this
+]
+
+[lint.isort]
+known-first-party = ["app"]
+combine-as-imports = true
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]              # re-exports
+"tests/**" = ["S101", "B"]            # asserts are the point; bugbear noisy in tests
+"alembic/**" = ["F401", "E402"]
+# Files holding non-ASCII (e.g. Russian) LLM prompts — RUF001 flags Cyrillic as
+# "ambiguous". Local exception, not a global disable. List the real files:
+# "app/services/llm/providers.py" = ["RUF001"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
