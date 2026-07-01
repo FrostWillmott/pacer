@@ -3,7 +3,7 @@
 
 Usage:
     uv run python scripts/seed.py           # insert/update all
-    uv run python scripts/seed.py --dry-run # print what would be loaded
+    uv run python scripts/seed.py --dry-run # print (queries LeetCode; no DB)
 
 Idempotent: upserts by slug — safe to re-run after correcting a slug.
 If GraphQL returns null for a slug, the problem is skipped with a warning
@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from contextlib import AsyncExitStack
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -346,9 +347,6 @@ async def seed(*, dry_run: bool) -> None:
     settings = get_settings()
     added_at = datetime.now(tz=ZoneInfo(settings.tz))
 
-    engine = create_async_engine(settings.database_url, echo=False)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
     problems: list[tuple[str, str, str, int]] = []  # (slug, pattern, track, order)
     for i, (slug, pattern) in enumerate(ALGO_PROBLEMS, start=1):
         problems.append((slug, pattern, "algo", i))
@@ -357,36 +355,45 @@ async def seed(*, dry_run: bool) -> None:
 
     ok = skipped = 0
 
-    async with httpx.AsyncClient() as client, factory() as session:
-        async with session.begin():
-            for slug, pattern, track, order_index in problems:
-                meta = await fetch_problem_meta(slug, client)
-                if meta is None:
-                    logging.warning(
-                        "SKIP %s — GraphQL returned null (premium or bad slug?)", slug
-                    )
-                    skipped += 1
-                    continue
+    async with AsyncExitStack() as stack:
+        client = await stack.enter_async_context(httpx.AsyncClient())
 
-                title, difficulty = meta
-                if dry_run:
-                    print(
-                        f"  [{track}:{order_index:03d}] {slug!r} — {title} ({difficulty})"
-                    )
-                else:
-                    await upsert_problem(
-                        session,
-                        slug,
-                        title,
-                        difficulty,
-                        track,
-                        pattern,
-                        order_index,
-                        added_at,
-                    )
-                ok += 1
+        # Dry-run still queries LeetCode for titles/difficulty, but opens no DB
+        # connection and writes nothing.
+        session: AsyncSession | None = None
+        if not dry_run:
+            engine = create_async_engine(settings.database_url, echo=False)
+            stack.push_async_callback(engine.dispose)
+            factory = async_sessionmaker(engine, expire_on_commit=False)
+            session = await stack.enter_async_context(factory())
+            await stack.enter_async_context(session.begin())
 
-    await engine.dispose()
+        for slug, pattern, track, order_index in problems:
+            meta = await fetch_problem_meta(slug, client)
+            if meta is None:
+                logging.warning(
+                    "SKIP %s — GraphQL returned null (premium or bad slug?)", slug
+                )
+                skipped += 1
+                continue
+
+            title, difficulty = meta
+            if session is None:
+                print(
+                    f"  [{track}:{order_index:03d}] {slug!r} — {title} ({difficulty})"
+                )
+            else:
+                await upsert_problem(
+                    session,
+                    slug,
+                    title,
+                    difficulty,
+                    track,
+                    pattern,
+                    order_index,
+                    added_at,
+                )
+            ok += 1
 
     total = ok + skipped
     print(f"\nDone: {ok}/{total} inserted/updated, {skipped} skipped.")
@@ -399,7 +406,7 @@ def main() -> None:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print what would be loaded, no DB writes",
+        help="Print what would be loaded; still queries LeetCode, no DB connection",
     )
     args = parser.parse_args()
 

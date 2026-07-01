@@ -120,6 +120,7 @@ async def build_digest(
         select(Problem)
         .join(Progress, Progress.problem_slug == Problem.slug)
         .where(Progress.status == Status.introduced)
+        .order_by(Problem.order_index)
     )
     new_problems = new_result.scalars().all()
 

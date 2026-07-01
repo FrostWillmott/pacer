@@ -9,6 +9,7 @@ only — no other module imports from this file.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -134,43 +135,50 @@ async def sync_submissions(
         return new_count
 
     await session.flush()
-
-    for slug in affected_slugs:
-        await _recompute_progress(session, slug, settings)
+    await _recompute_progress(session, affected_slugs, settings)
 
     return new_count
 
 
 async def _recompute_progress(
     session: AsyncSession,
-    slug: str,
+    slugs: set[str],
     settings: Settings,
 ) -> None:
-    """Recompute the stored progress fields for `slug` from its full submission log."""
+    """Recompute stored progress for each slug from its full submission log.
+
+    Batched: one query for all submissions and one for all progress rows,
+    grouped in memory — avoids a per-slug round trip.
+    """
     times_result = await session.execute(
-        select(Submission.solved_at)
-        .where(Submission.problem_slug == slug)
-        .order_by(Submission.solved_at)
+        select(Submission.problem_slug, Submission.solved_at)
+        .where(Submission.problem_slug.in_(slugs))
+        .order_by(Submission.problem_slug, Submission.solved_at)
     )
-    solved_times = list(times_result.scalars().all())
+    times_by_slug: dict[str, list[datetime]] = defaultdict(list)
+    for slug, solved_at in times_result.all():
+        times_by_slug[slug].append(solved_at)
 
     progress_result = await session.execute(
-        select(Progress).where(Progress.problem_slug == slug)
+        select(Progress).where(Progress.problem_slug.in_(slugs))
     )
-    progress = progress_result.scalar_one_or_none()
+    progress_by_slug = {p.problem_slug: p for p in progress_result.scalars().all()}
 
-    if progress is None:
-        logger.warning("recompute: no progress row for slug=%s", slug)
-        return
+    for slug in slugs:
+        progress = progress_by_slug.get(slug)
+        if progress is None:
+            logger.warning("recompute: no progress row for slug=%s", slug)
+            continue
 
-    state = compute_progress(
-        solved_times,
-        settings.consolidation_intervals,
-        settings.maintenance_interval_days,
-    )
+        state = compute_progress(
+            times_by_slug[slug],
+            settings.consolidation_intervals,
+            settings.maintenance_interval_days,
+        )
 
-    progress.status = state.status
-    progress.interval_index = state.interval_index
-    progress.last_reviewed_at = state.last_reviewed_at
-    progress.next_review_at = state.next_review_at
+        progress.status = state.status
+        progress.interval_index = state.interval_index
+        progress.last_reviewed_at = state.last_reviewed_at
+        progress.next_review_at = state.next_review_at
+
     await session.flush()

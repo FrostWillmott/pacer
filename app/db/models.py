@@ -3,7 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -43,6 +51,10 @@ class Problem(Base):
     submissions: Mapped[list[Submission]] = relationship(back_populates="problem")
     progress: Mapped[Progress | None] = relationship(back_populates="problem")
 
+    # Candidate lookup and the digest "new" query both filter by track and
+    # order by order_index; a composite index serves both.
+    __table_args__ = (Index("ix_problems_track_order_index", "track", "order_index"),)
+
 
 class Submission(Base):
     __tablename__ = "submissions"
@@ -66,7 +78,7 @@ class Progress(Base):
     problem_slug: Mapped[str] = mapped_column(
         String, ForeignKey("problems.slug"), primary_key=True
     )
-    status: Mapped[Status] = mapped_column(Enum(Status), nullable=False)
+    status: Mapped[Status] = mapped_column(Enum(Status), nullable=False, index=True)
     introduced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -75,7 +87,7 @@ class Progress(Base):
         DateTime(timezone=True), nullable=True
     )
     next_review_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        DateTime(timezone=True), nullable=True, index=True
     )
 
     problem: Mapped[Problem] = relationship(back_populates="progress")

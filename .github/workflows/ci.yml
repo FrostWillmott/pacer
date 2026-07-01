@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras
+      - name: Lint + type + test (SQLite)
+        run: make check
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pacer
+          POSTGRES_PASSWORD: pacer
+          POSTGRES_DB: pacer_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pacer -d pacer_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras
+      - name: Test against Postgres
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://pacer:pacer@localhost:5432/pacer_test
+        # Router tests drive the app via TestClient, which runs on its own event
+        # loop — incompatible with a shared asyncpg session across loops. They
+        # cover HTTP shaping and run under SQLite in the `check` job; this job
+        # validates DB-semantic parity (cast-to-Date, tz-aware, dedup) via the
+        # service/domain tests.
+        run: uv run pytest tests/ --ignore=tests/routers -v

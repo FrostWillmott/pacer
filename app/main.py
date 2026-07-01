@@ -21,6 +21,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     hour, minute = (int(x) for x in settings.digest_time.split(":"))
     async with AsyncScheduler() as scheduler:
         await register_jobs(scheduler, hour, minute, settings.tz)
+        # AsyncScheduler() as a context manager only wires up the data store +
+        # event broker — it does NOT run the schedule-processing loop. Without
+        # this call add_schedule() just persists the schedule and nothing ever
+        # executes it. Note: APScheduler 4.x defaults to an in-memory data
+        # store, so schedules don't survive a restart — that's fine here only
+        # because register_jobs() re-adds the schedule on every startup.
+        await scheduler.start_in_background()
         yield
 
 

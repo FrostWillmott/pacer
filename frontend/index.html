@@ -66,11 +66,17 @@ async function load() {
   }
 }
 
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
 function problemCard(p) {
   return `<div class="card">
-    <span class="badge badge-${p.track}">${p.track}</span>
-    <a href="${p.url}" target="_blank" rel="noopener">${p.title}</a>
-    <span class="badge badge-${p.difficulty} meta">${p.difficulty}</span>
+    <span class="badge badge-${esc(p.track)}">${esc(p.track)}</span>
+    <a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
+    <span class="badge badge-${esc(p.difficulty)} meta">${esc(p.difficulty)}</span>
   </div>`;
 }
 

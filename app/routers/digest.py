@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -85,7 +86,11 @@ async def get_digest_today(
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> DigestOut:
-    digest = await build_digest(session, settings, date.today())
+    # Derive "today" from the configured tz rather than the server's local
+    # clock, so the review date-cast comparison is self-consistent regardless
+    # of the container's TZ setting.
+    today = datetime.now(tz=ZoneInfo(settings.tz)).date()
+    digest = await build_digest(session, settings, today)
     return DigestOut(
         new={
             track: [ProblemOut.from_summary(p) for p in problems]

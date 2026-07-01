@@ -1,4 +1,4 @@
-.PHONY: help install install-hooks check fix lint format typecheck test pre-commit ci clean
+.PHONY: help install install-hooks check fix lint format typecheck test coverage pre-commit ci clean
 
 help:
 	@echo "Project Commands"
@@ -14,6 +14,7 @@ help:
 	@echo "  make format        - Check formatting (ruff format --check)"
 	@echo "  make typecheck     - Run type checker (mypy)"
 	@echo "  make test          - Run tests"
+	@echo "  make coverage      - Run tests with coverage report (fails under 70%)"
 	@echo "  make pre-commit    - Run all pre-commit hooks"
 	@echo "  make ci            - Full CI check locally"
 
@@ -40,6 +41,9 @@ typecheck:
 
 test:
 	uv run pytest tests/ -v
+
+coverage:
+	uv run pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=70
 
 pre-commit:
 	uv run pre-commit run --all-files
