@@ -15,13 +15,19 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sys
 from contextlib import AsyncExitStack
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+# Run directly (`python scripts/seed.py`) without the project being installed:
+# put the repo root on sys.path so `import app` resolves.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # ── Problem lists ─────────────────────────────────────────────────────────────
 # Each entry: (slug, pattern)

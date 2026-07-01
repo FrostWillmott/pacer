@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import pytest
+
 from app.config import Settings, get_settings
 
 
 def test_consolidation_intervals_parses_comma_separated_string() -> None:
     settings = Settings(consolidation_intervals="3, 14, 45")  # type: ignore[arg-type]
     assert settings.consolidation_intervals == [3, 14, 45]
+
+
+def test_consolidation_intervals_parses_comma_separated_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The env source is where pydantic-settings would try to JSON-decode a
+    # list[int]; NoDecode + the validator must handle the bare comma form.
+    monkeypatch.setenv("CONSOLIDATION_INTERVALS", "5,6,7")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.consolidation_intervals == [5, 6, 7]
 
 
 def test_consolidation_intervals_accepts_list_unchanged() -> None:

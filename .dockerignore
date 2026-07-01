@@ -1,0 +1,24 @@
+# Never copy the host virtualenv — it clobbers the image's frozen /app/.venv
+# and its interpreter link is invalid on Linux, forcing a rebuild at boot.
+.venv
+
+# Secrets and local config come from docker-compose env_file at runtime.
+.env
+
+# VCS, CI, and editor metadata
+.git
+.github
+.idea
+
+# Python / tooling caches
+__pycache__
+*.pyc
+.ruff_cache
+.pytest_cache
+.mypy_cache
+
+# Not needed in the runtime image
+tests
+notifier
+docs
+*.md

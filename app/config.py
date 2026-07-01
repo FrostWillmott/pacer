@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -12,7 +13,10 @@ class Settings(BaseSettings):
     leetcode_username: str = ""
 
     new_problems_per_day_total: int = 1
-    consolidation_intervals: list[int] = [3, 14, 45]
+    # NoDecode: skip pydantic-settings' JSON decoding of this env var so the
+    # comma-separated form (CONSOLIDATION_INTERVALS=3,14,45) reaches the
+    # mode="before" validator below instead of failing json.loads.
+    consolidation_intervals: Annotated[list[int], NoDecode] = [3, 14, 45]
     maintenance_interval_days: int = 90
     review_per_day_cap: int = 4
 
