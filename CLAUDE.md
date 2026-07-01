@@ -1,43 +1,60 @@
 # CLAUDE.md
 Guidance for Claude Code when working in this repository.
 
-<!--
-  Keep this file under ~200 lines. It holds what THIS repo needs every session:
-  stack, commands, key decisions. Universal style lives in ~/.claude/CLAUDE.md;
-  reusable conventions live in .claude/rules/*.md (loaded automatically).
--->
-
 ## Project
-<!-- One paragraph: what this is, the stack, and its purpose/status. -->
-TODO: e.g. REST API for X. Stack: FastAPI, async SQLAlchemy 2.0 + asyncpg,
-PostgreSQL, Alembic, Docker. Package manager: uv.
+
+Personal LeetCode spaced-repetition tracker. Decides what to solve each day across
+two tracks (NeetCode 150 algo + SQL 50), paces new problems, and tracks solved ones
+via spaced repetition. Pulls solved problems automatically from LeetCode, sends a
+macOS push notification every morning. Runs locally on Docker (auto-start on boot).
+
+Stack: FastAPI + async SQLAlchemy 2.0 + asyncpg + PostgreSQL + Alembic + APScheduler 4.x.
+Package manager: uv. Host notifier: Python script via launchd + osascript.
 
 ## Active rule modules
-<!-- List which .claude/rules/ modules apply, so it's visible at a glance. -->
-TODO: e.g. python-core, backend-fastapi, ai-engineering.
+
+`python-core`, `backend-fastapi`, `testing`, `workflow-scaffolding`
 
 ## Architecture divergences
-<!--
-  If this project deliberately differs from an applied module, say so here in
-  one line so the agent doesn't "correct" you. Project CLAUDE.md overrides modules.
--->
-TODO: e.g. This project uses a 3-layer split (routers/services/db), NOT full
-Clean Architecture, and has no repository layer — services call SQLAlchemy directly.
+
+3-layer split (routers / services / db), NOT full Clean Architecture. No repository
+layer — services call SQLAlchemy directly via `AsyncSession`.
+
+`sync.py` is deliberately isolated as a fragile external integration (undocumented
+LeetCode GraphQL). No other module may import from it.
 
 ## Commands
-<!-- The exact verify-all command and the common ones. Prefer a single entry point. -->
+
 ```bash
-make install   # uv sync --extra dev + pre-commit install
+make install   # uv sync --all-extras + pre-commit install
 make check     # lint + type + test — run before finishing any task
 make fix       # ruff --fix + format
-make test      # TODO
+make test      # uv run pytest tests/ -v
+```
+
+To start the backend + DB locally:
+```bash
+cp .env.example .env    # fill in POSTGRES_PASSWORD and review TZ
+docker compose up -d
+docker compose exec backend uv run python scripts/seed.py
 ```
 
 ## Key design decisions
-<!-- Non-obvious choices an agent would otherwise re-litigate. The high-value part. -->
-- TODO: e.g. cycle detection via BFS over descendants before reparenting.
-- TODO: e.g. unique name scoped per parent_id, enforced in service layer.
+
+- **Progress fold**: `compute_progress(submission_times, intervals, maintenance)` is a
+  pure function. Progress can always be recomputed from scratch; the DB row is a cache.
+- **`introduced_at` NOT NULL invariant**: `ORDER BY introduced_at DESC` drives track
+  alternation. NULL breaks PostgreSQL's DESC sort. Ahead-of-pace solves use `solved_at`.
+- **`status='review'` does not exist**: the review queue is a query
+  (`next_review_at::date <= today AND status != 'introduced'`), not a stored status.
+- **Scheduler writes, GET reads**: `introduce_if_needed()` is called by the APScheduler
+  daily job, never by `GET /digest/today`. Keeps the endpoint side-effect-free.
+- **Date-cast in review query**: `cast(next_review_at, Date) <= today` prevents a review
+  due at 14:00 from not appearing until the next day.
+- **Track alternation first-call default**: if `progress` is empty → algo first.
+  If last introduced was SQL → algo next; otherwise SQL. Fallback if track exhausted.
 
 ## Git
+
 - Do not add AI-tool references, co-author lines, or "generated with" notes to
   commit messages.
