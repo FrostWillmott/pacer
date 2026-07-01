@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     maintenance_interval_days: int = 90
     review_per_day_cap: int = 4
 
+    tz: str = "Europe/Moscow"
     digest_time: str = "08:00"
     backend_port: int = 8000
 
