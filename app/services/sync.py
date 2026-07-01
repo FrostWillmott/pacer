@@ -9,7 +9,7 @@ only — no other module imports from this file.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,16 @@ from app.db.models import Problem, Progress, Status, Submission
 from app.services.progress import compute_progress
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_aware(dt: datetime) -> datetime:
+    """Return a timezone-aware datetime, assuming UTC if tzinfo is absent.
+
+    SQLite strips tzinfo on reads; PostgreSQL preserves UTC. This normalizes
+    both so the in-memory dedup set comparison works across drivers.
+    """
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
 
 _LEETCODE_GRAPHQL_URL = "https://leetcode.com/graphql"
 
@@ -77,9 +87,11 @@ async def sync_submissions(
     existing_result = await session.execute(
         select(Submission.problem_slug, Submission.solved_at)
     )
-    # Track in-memory so duplicate slugs within one batch don't cause IntegrityError
+    # Track in-memory so duplicate slugs within one batch don't cause IntegrityError.
+    # Normalize naive datetimes to UTC-aware (_ensure_aware) so comparison works across
+    # DB drivers — SQLite strips tzinfo; PostgreSQL preserves it as UTC.
     existing_pairs: set[tuple[str, datetime]] = {
-        (row[0], row[1]) for row in existing_result.all()
+        (row[0], _ensure_aware(row[1])) for row in existing_result.all()
     }
 
     progress_result = await session.execute(select(Progress.problem_slug))
