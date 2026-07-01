@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pacer.notifier</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ivan_tkachenko/Projects/personal/pacer/.venv/bin/python</string>
+        <string>/Users/ivan_tkachenko/Projects/personal/pacer/notifier/notify.py</string>
+    </array>
+
+    <!-- Fires at DIGEST_TIME + 2 min so the backend job has time to finish.
+         If you change DIGEST_TIME in .env, update Hour/Minute here to match. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>2</integer>
+    </dict>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/pacer-notifier.err</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
