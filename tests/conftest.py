@@ -22,7 +22,7 @@ def settings() -> Settings:
         consolidation_intervals=[3, 14, 45],
         maintenance_interval_days=90,
         review_per_day_cap=4,
-        new_problems_per_day_total=1,
+        max_new_in_flight=1,
         tz="UTC",
         postgres_user="x",
         postgres_password="x",  # noqa: S106

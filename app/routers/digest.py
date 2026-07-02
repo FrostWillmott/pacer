@@ -5,13 +5,11 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.db.models import Problem, Progress, Status
 from app.db.session import get_db
-from app.services.digest import ProblemSummary, build_digest
+from app.services.digest import ProblemSummary, build_digest, get_progress_summary
 
 router = APIRouter()
 
@@ -48,37 +46,13 @@ class ProgressSummaryOut(BaseModel):
 
 
 @router.get("/progress/summary", response_model=ProgressSummaryOut)
-async def get_progress_summary(
+async def get_progress_summary_endpoint(
     session: AsyncSession = Depends(get_db),
 ) -> ProgressSummaryOut:
-    rows = (
-        await session.execute(
-            select(Problem.track, Progress.status, func.count())
-            .join(Progress, Progress.problem_slug == Problem.slug)
-            .group_by(Problem.track, Progress.status)
-        )
-    ).all()
-
-    by_status: dict[str, dict[str, int]] = {
-        "algo": {s.value: 0 for s in Status},
-        "sql": {s.value: 0 for s in Status},
-    }
-    for track, status, count in rows:
-        by_status[track][status] = count
-
-    unintroduced_rows = (
-        await session.execute(
-            select(Problem.track, func.count())
-            .where(Problem.slug.notin_(select(Progress.problem_slug)))
-            .group_by(Problem.track)
-        )
-    ).all()
-
-    unintroduced: dict[str, int] = {"algo": 0, "sql": 0}
-    for track, count in unintroduced_rows:
-        unintroduced[track] = count
-
-    return ProgressSummaryOut(by_status=by_status, unintroduced=unintroduced)
+    summary = await get_progress_summary(session)
+    return ProgressSummaryOut(
+        by_status=summary.by_status, unintroduced=summary.unintroduced
+    )
 
 
 @router.get("/digest/today", response_model=DigestOut)
@@ -87,8 +61,8 @@ async def get_digest_today(
     settings: Settings = Depends(get_settings),
 ) -> DigestOut:
     # Derive "today" from the configured tz rather than the server's local
-    # clock, so the review date-cast comparison is self-consistent regardless
-    # of the container's TZ setting.
+    # clock, so the review-due comparison is self-consistent regardless of
+    # the container's TZ setting.
     today = datetime.now(tz=ZoneInfo(settings.tz)).date()
     digest = await build_digest(session, settings, today)
     return DigestOut(

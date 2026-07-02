@@ -8,11 +8,15 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore": .env is deliberately shared with the host notifier, which
+    # reads DIGEST_TIME directly (see docs/DECISIONS.md) — not a Settings field.
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     leetcode_username: str = ""
 
-    new_problems_per_day_total: int = 1
+    max_new_in_flight: int = 1
     # NoDecode: skip pydantic-settings' JSON decoding of this env var so the
     # comma-separated form (CONSOLIDATION_INTERVALS=3,14,45) reaches the
     # mode="before" validator below instead of failing json.loads.
@@ -21,7 +25,6 @@ class Settings(BaseSettings):
     review_per_day_cap: int = 4
 
     tz: str = "Europe/Moscow"
-    digest_time: str = "08:00"
     backend_port: int = 8000
 
     postgres_user: str = "leetcode_tracker"

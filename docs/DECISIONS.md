@@ -33,6 +33,66 @@ functional gain — there's no independent scaling, deploy cadence, or
 technology reason to split it. `StaticFiles(directory="frontend", html=True)`
 mounted on the same FastAPI app is the entire frontend deployment story.
 
+**`daily_job` is triggered by a host `launchd` agent (`POST
+/internal/daily-job`), not by an in-process scheduler.**
+
+The original design ran an in-process APScheduler `AsyncScheduler` with a
+`CronTrigger` inside the backend container. In practice it silently never
+fired: the host Mac spends most of the night in Idle Sleep, and a suspended
+machine doesn't run the container's event loop, so a wall-clock timer set for
+08:00 simply never got CPU time to elapse (confirmed via `pmset -g log`
+showing continuous sleep/dark-wake cycles straight through the scheduled
+time — not an APScheduler bug). `launchd`'s `StartCalendarInterval`, by
+contrast, is driven by the host's real-time clock: per `launchd.plist(5)`, a
+fire missed while the machine is *asleep* runs (coalesced into one) as soon
+as it wakes — exactly the semantics an unattended laptop needs. This does
+not extend to the machine being fully powered off across the scheduled time;
+in that case the fire is simply skipped until the next occurrence, same as
+cron. Verified live: `launchctl kickstart -k gui/<uid>/com.pacer.notifier`
+runs the real `.venv/bin/python notifier/notify.py` under launchd's
+environment end-to-end (trigger → digest → notification) without error.
+
+The notifier and the job trigger are one launchd agent (`notifier/notify.py`),
+not two independently-scheduled ones. An earlier design fired a "run the job"
+agent and a "poll + notify" agent a couple of minutes apart; on a wake-driven
+coalesced run, both become due near-simultaneously with no ordering
+guarantee between them, so the notifier could poll yesterday's digest before
+the job had run. Doing `POST /internal/daily-job` (awaits completion) then
+`GET /digest/today` then the notification in one script, from one agent, makes
+the ordering structural instead of timing-dependent.
+
+**Notification via `terminal-notifier`, not plain `osascript -e 'display
+notification'`.**
+
+The first version used bare `osascript`, which only shows text — no click
+action. Once the notification needed to name specific problems, a plain count
+("1 new / 4 for review") stopped being useful; the natural next step is
+clicking through to LeetCode. `osascript`'s `display notification` has no
+`-open`-equivalent, so `terminal-notifier` (`brew install terminal-notifier`)
+replaced it — a new host dependency, but the only way to get click-to-open
+without shipping a full macOS app bundle with `NSUserNotificationCenter`
+entitlements, which is disproportionate for a personal tool. Caveat found
+during setup: `launchd` runs agents with a minimal `PATH` that excludes
+Homebrew's bin dirs, so `shutil.which("terminal-notifier")` resolves under an
+interactive shell but not under `launchd` — `notify.py` falls back to the
+known Homebrew prefixes (`/opt/homebrew/bin`, `/usr/local/bin`) rather than
+relying on `PATH` alone.
+
+**`notify.py` polls `GET /health` for up to 90s before triggering the daily
+job, rather than hitting `/internal/daily-job` immediately.**
+
+On the exact scenario this whole redesign targets — overnight sleep, wake in
+the morning — `launchd` fires this agent "as soon as possible" after wake,
+which can be before Docker Desktop's VM has finished resuming and the
+backend is accepting connections. Without the wait, a POST that loses that
+race fails fast (connection refused, not a timeout) and the daily job simply
+doesn't run that morning — the same silent-digest outcome as the original
+bug, just converted into a failure notification instead of no notification
+at all. Verified live: stopping the backend, running the notifier, and
+starting the backend ~8s into the poll loop completes successfully instead
+of failing immediately; a backend that never comes up within the window
+still fails, cleanly, after the deadline.
+
 ## Data model
 
 **`submissions` (append-only log) and `progress` (computed, overwritten) are
@@ -144,25 +204,28 @@ expose failed submissions for this account).
 
 ## Track alternation and pacing
 
-**One shared daily quota across both tracks, alternating by event (last
-`introduced_at`'s track), not a calendar-day-based split or per-track
-quotas.**
+**One shared in-flight cap across both tracks (`MAX_NEW_IN_FLIGHT`),
+alternating by event (last `introduced_at`'s track), not a calendar-day-based
+split or per-track quotas.**
 
-A per-track quota (e.g. "1 algo + 1 SQL per day") would double the true
+A per-track cap (e.g. "1 algo + 1 SQL in flight") would double the true
 onboarding load relative to the "2-3 problems/day, ~30-60 min" target that
-motivated `NEW_PROBLEMS_PER_DAY_TOTAL=1` in the first place. Basing
-alternation on the last introduced row's track (not on `today()` vs
-`yesterday()`) means a skipped day doesn't desync the rotation — the next
-introduction always continues correctly from wherever the sequence actually
-left off, which a calendar-based rule couldn't guarantee.
+motivated `MAX_NEW_IN_FLIGHT=1` in the first place. Basing alternation on the
+last introduced row's track (not on `today()` vs `yesterday()`) means a
+skipped day doesn't desync the rotation — the next introduction always
+continues correctly from wherever the sequence actually left off, which a
+calendar-based rule couldn't guarantee.
 
 **A new problem is only introduced once the current `introduced` one is
 resolved, never introduced "on a timer" regardless of pending state.**
 
-`introduce_if_needed` checks `introduced_count >= quota` and returns early
-if so. This is what prevents the digest from silently piling up unsolved new
-problems — the pacing mechanism is "one thing in flight," not "one thing
-added per day regardless of backlog."
+`introduce_if_needed` checks `introduced_count >= MAX_NEW_IN_FLIGHT` and
+returns early if so. This is what prevents the digest from silently piling up
+unsolved new problems — the pacing mechanism is "one thing in flight," not
+"one thing added per day regardless of backlog." The name deliberately says
+*in flight*, not *per day*: the daily job checks this cap once a day, but the
+semantics it enforces are about concurrently-open problems, not a
+day-scoped counter that resets at midnight.
 
 **Explicit track-completion fallback (try `next_track`, then the other) is
 inline in `introduce_if_needed`, not a separate "track finished" check
@@ -176,7 +239,7 @@ remaining track. Making the fallback part of the same function/query means
 "track finished" isn't a state that has to be detected and handled
 separately; it falls out of `_find_candidate` returning `None`.
 
-**`introduce_if_needed` runs from the scheduler's `daily_job`, never from
+**`introduce_if_needed` runs from `daily_job`, never from
 `GET /digest/today`.**
 
 The digest endpoint is polled at minimum once by the host notifier and
@@ -233,16 +296,28 @@ conversion would be the standard multi-user-service pattern, but here it
 only adds a conversion step that has to be gotten right in both directions
 for a problem (multiple users in different zones) that doesn't exist.
 
-**Review-due comparison casts to `Date` (`cast(Progress.next_review_at, Date)
-<= today`) instead of comparing full timestamps.**
+**Review-due comparison is `next_review_at < start of (today + 1 day) in
+settings.tz` instead of comparing full timestamps or casting to `Date`.**
 
 `next_review_at` carries a time-of-day component inherited from when the
 prior submission happened (e.g. 22:00). A raw timestamp comparison against
 `datetime.now()` would make a problem due "today" only appear once the clock
 passes that same time-of-day — meaning a problem solved late at night would
-be invisible in tomorrow's 08:00 digest until 22:00 tomorrow. Casting both
-sides to `Date` makes "due today" mean the calendar day, matching how a human
-would read the digest.
+be invisible in tomorrow's 08:00 digest until 22:00 tomorrow. Comparing
+against the start of the next calendar day makes "due today" mean the
+calendar day, matching how a human would read the digest.
+
+An earlier version used `cast(Progress.next_review_at, Date) <= today`. That
+has two problems this version avoids: `timestamptz::date` in PostgreSQL
+converts through the *session's* `timezone` GUC, not `settings.tz` — the two
+happen to agree only because both are currently seeded from the same `.env`
+`TZ`, an unpinned coincidence, not something the code enforces. And a
+function-wrapped column (`cast(next_review_at, Date)`) can't be served by
+`ix_progress_next_review_at`'s range scan. Computing the boundary as a
+`settings.tz`-aware Python `datetime` and comparing it directly against the
+`timestamptz` column sidesteps both: the comparison is timezone-explicit
+(doesn't depend on what the DB session happens to be configured with), and it
+keeps the index usable.
 
 **`settings.tz`-aware `datetime.now(tz=...).date()` in the router, not a bare
 `date.today()`.**
@@ -258,7 +333,7 @@ coupling being correct.
 
 ## Configuration
 
-**All tunables (`NEW_PROBLEMS_PER_DAY_TOTAL`, `CONSOLIDATION_INTERVALS`,
+**All tunables (`MAX_NEW_IN_FLIGHT`, `CONSOLIDATION_INTERVALS`,
 `REVIEW_PER_DAY_CAP`, `LEETCODE_USERNAME`, ports, etc.) live in `.env`, not
 as constants in code.**
 

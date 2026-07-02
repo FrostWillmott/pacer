@@ -30,9 +30,10 @@ For the reasoning behind the non-obvious design choices, see
 
 ## Stack
 
-FastAPI · async SQLAlchemy 2.0 · asyncpg · PostgreSQL · Alembic · APScheduler 4.x ·
+FastAPI · async SQLAlchemy 2.0 · asyncpg · PostgreSQL · Alembic ·
 [uv](https://github.com/astral-sh/uv) for dependency management. Host notifier: a
-Python script run via `launchd` + `osascript`.
+Python script run via `launchd` + `terminal-notifier`, which also triggers the
+daily job.
 
 ## Quick start
 
@@ -55,11 +56,13 @@ alongside the API.
 
 ### Endpoints
 
-| Method | Path                | Description                                   |
-|--------|---------------------|-----------------------------------------------|
-| `GET`  | `/digest/today`     | Today's new + due-for-review problems         |
-| `GET`  | `/progress/summary` | Per-track counts by status                    |
-| `GET`  | `/`                 | Read-only frontend                            |
+| Method | Path                   | Description                                       |
+|--------|------------------------|----------------------------------------------------|
+| `GET`  | `/digest/today`        | Today's new + due-for-review problems             |
+| `GET`  | `/progress/summary`    | Per-track counts by status                        |
+| `POST` | `/internal/daily-job`  | Runs the sync/introduce job (host notifier only)   |
+| `GET`  | `/health`              | Liveness check                                     |
+| `GET`  | `/`                    | Read-only frontend                                 |
 
 ## Configuration
 
@@ -68,27 +71,37 @@ All tunables live in `.env` (see `.env.example`):
 | Variable                     | Meaning                                          |
 |------------------------------|--------------------------------------------------|
 | `LEETCODE_USERNAME`          | Your LeetCode handle (profile must be public)    |
-| `NEW_PROBLEMS_PER_DAY_TOTAL` | Shared daily quota for introducing new problems  |
+| `MAX_NEW_IN_FLIGHT`          | Max problems simultaneously in `introduced` status |
 | `CONSOLIDATION_INTERVALS`    | Post-solve review intervals, in days             |
 | `MAINTENANCE_INTERVAL_DAYS`  | Repeating maintenance cadence after consolidation|
 | `REVIEW_PER_DAY_CAP`         | Max review items shown per day                   |
 | `TZ`                         | Container timezone — must match your macOS zone  |
-| `DIGEST_TIME`                | Local time the daily job runs (`HH:MM`)          |
+| `DIGEST_TIME`                | Local time the host notifier fires (`HH:MM`)     |
 | `BACKEND_PORT`               | Host port for the backend                        |
 | `POSTGRES_*`                 | Database credentials and host                    |
 
 ## macOS notifications (host notifier)
 
 The notifier can't live in Docker — macOS Notification Center is a host-level API.
-It polls `GET /digest/today` and fires a notification via `osascript`, driven by
-`launchd`, and stays silent on days with nothing due.
+Driven by `launchd` at `DIGEST_TIME`, it triggers `POST /internal/daily-job`
+(waits for it to finish), then polls `GET /digest/today` and fires a notification
+naming the actual new/review problems (not just a count) — one script, one agent,
+so the notification always reflects a job that has actually finished running. It
+stays silent on days with nothing due, but does notify if the job or the digest
+fetch itself fails. Clicking the notification opens the frontend, where each
+problem links to LeetCode.
+
+Requires [`terminal-notifier`](https://github.com/julienXX/terminal-notifier)
+(`brew install terminal-notifier`) — plain `osascript -e 'display notification'`
+has no click-to-open action, which is why this project uses it instead.
 
 One-time activation generates the launchd agent from this checkout and loads it —
-its schedule (`DIGEST_TIME` + 2 min) and paths are derived automatically, nothing
-to hand-edit:
+its schedule (`DIGEST_TIME`) and paths are derived automatically, nothing to
+hand-edit:
 
 ```bash
-make install-notifier      # or: uv run python notifier/install_agent.py
+brew install terminal-notifier   # one-time host dependency
+make install-notifier            # or: uv run python notifier/install_agent.py
 ```
 
 Re-run `make install-notifier` after changing `DIGEST_TIME` to resync the fire
@@ -115,5 +128,5 @@ TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/db \
 
 Lightweight 3-layer split: `routers/` (HTTP only) → `services/` (business logic) →
 async SQLAlchemy. `app/services/sync.py` is deliberately isolated as a fragile
-external integration (LeetCode's undocumented GraphQL API) — no other module
-imports from it.
+external integration (LeetCode's undocumented GraphQL API): all LeetCode HTTP
+communication lives there, and `app/scheduler.py` is its sole consumer.

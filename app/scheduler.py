@@ -5,19 +5,22 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import httpx
-from apscheduler import AsyncScheduler
-from apscheduler.triggers.cron import CronTrigger
 
 from app.config import get_settings
 from app.db.session import get_session_factory
 from app.services.digest import introduce_if_needed
-from app.services.sync import fetch_recent_ac, sync_submissions
+from app.services.sync import LeetCodeResponseError, fetch_recent_ac, sync_submissions
 
 logger = logging.getLogger(__name__)
 
 
 async def daily_job() -> None:
-    """Sync LeetCode submissions and introduce a new problem if the quota allows."""
+    """Sync LeetCode submissions and introduce a new problem if the quota allows.
+
+    Triggered by a host launchd agent hitting POST /internal/daily-job, not by
+    an in-process scheduler — see docs/DECISIONS.md for why (host sleep silently
+    starves in-process cron timers; launchd coalesces missed fires on wake).
+    """
     settings = get_settings()
     session_factory = get_session_factory()
     local_tz = ZoneInfo(settings.tz)
@@ -26,7 +29,7 @@ async def daily_job() -> None:
         async with httpx.AsyncClient() as client:
             try:
                 raw = await fetch_recent_ac(settings.leetcode_username, client=client)
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, LeetCodeResponseError) as exc:
                 logger.error("LeetCode sync failed: %s", exc)
                 return
 
@@ -35,13 +38,3 @@ async def daily_job() -> None:
 
         now = datetime.now(tz=local_tz)
         await introduce_if_needed(session, settings, now)
-
-
-async def register_jobs(
-    scheduler: AsyncScheduler, hour: int, minute: int, tz: str
-) -> None:
-    """Add the daily digest job to an already-started scheduler."""
-    await scheduler.add_schedule(
-        daily_job,
-        CronTrigger(hour=hour, minute=minute, timezone=ZoneInfo(tz)),
-    )

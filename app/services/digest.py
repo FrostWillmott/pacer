@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import Date, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -27,6 +28,12 @@ class DigestResponse:
     )
     review: list[ProblemSummary] = field(default_factory=list)
     review_overdue_total: int = 0
+
+
+@dataclass
+class ProgressSummary:
+    by_status: dict[str, dict[str, int]]
+    unintroduced: dict[str, int]
 
 
 def _to_summary(problem: Problem) -> ProblemSummary:
@@ -60,15 +67,16 @@ async def introduce_if_needed(
 ) -> None:
     """Insert a progress row for one new problem if the quota allows it.
 
-    Called by the scheduler, not by the GET endpoint — keeps the endpoint
-    side-effect-free so the notifier can safely poll it multiple times.
+    Called by daily_job (app/scheduler.py), not by the GET endpoint — keeps
+    the endpoint side-effect-free so the notifier can safely poll it multiple
+    times.
     """
     count_result = await session.execute(
         select(func.count()).where(Progress.status == Status.introduced)
     )
     introduced_count: int = count_result.scalar_one()
 
-    if introduced_count >= settings.new_problems_per_day_total:
+    if introduced_count >= settings.max_new_in_flight:
         return
 
     last_track_result = await session.execute(
@@ -113,8 +121,12 @@ async def build_digest(
 ) -> DigestResponse:
     """Assemble the current digest — purely read-only; no writes.
 
-    Review comparison uses date-cast so a problem due at 14:00 on `today`
-    does not require the caller's clock to reach that exact time.
+    Review comparison is "next_review_at before the start of tomorrow, in
+    settings.tz" rather than a bare cast(..., Date) — a problem due at 14:00
+    on `today` still shows up regardless of the caller's clock, and unlike a
+    cast the comparison is a plain timestamptz range check: it doesn't depend
+    on the DB session's `timezone` GUC, and it keeps ix_progress_next_review_at
+    usable (a function-wrapped column can't be range-scanned).
     """
     new_result = await session.execute(
         select(Problem)
@@ -128,9 +140,12 @@ async def build_digest(
     for p in new_problems:
         new_by_track[p.track].append(_to_summary(p))
 
+    tomorrow_start = datetime.combine(
+        today + timedelta(days=1), time.min, tzinfo=ZoneInfo(settings.tz)
+    )
     overdue_filter = (
         Progress.status != Status.introduced,
-        cast(Progress.next_review_at, Date) <= today,
+        Progress.next_review_at < tomorrow_start,
     )
 
     total_result = await session.execute(
@@ -152,3 +167,35 @@ async def build_digest(
         review=[_to_summary(p) for p in review_problems],
         review_overdue_total=overdue_total,
     )
+
+
+async def get_progress_summary(session: AsyncSession) -> ProgressSummary:
+    """Per-track counts by status, plus not-yet-introduced counts."""
+    rows = (
+        await session.execute(
+            select(Problem.track, Progress.status, func.count())
+            .join(Progress, Progress.problem_slug == Problem.slug)
+            .group_by(Problem.track, Progress.status)
+        )
+    ).all()
+
+    by_status: dict[str, dict[str, int]] = {
+        "algo": {s.value: 0 for s in Status},
+        "sql": {s.value: 0 for s in Status},
+    }
+    for track, status, count in rows:
+        by_status[track][status] = count
+
+    unintroduced_rows = (
+        await session.execute(
+            select(Problem.track, func.count())
+            .where(Problem.slug.notin_(select(Progress.problem_slug)))
+            .group_by(Problem.track)
+        )
+    ).all()
+
+    unintroduced: dict[str, int] = {"algo": 0, "sql": 0}
+    for track, count in unintroduced_rows:
+        unintroduced[track] = count
+
+    return ProgressSummary(by_status=by_status, unintroduced=unintroduced)

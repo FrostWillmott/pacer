@@ -2,8 +2,8 @@
 
 recentAcSubmissionList is an undocumented, unofficial LeetCode endpoint.
 No authentication required; the profile must be public. Fields and
-availability can change without notice. All LeetCode HTTP code lives here
-only — no other module imports from this file.
+availability can change without notice. All LeetCode HTTP communication is
+isolated to this module — app/scheduler.py is its sole consumer.
 """
 
 from __future__ import annotations
@@ -23,6 +23,15 @@ from app.db.models import Problem, Progress, Status, Submission
 from app.services.progress import compute_progress
 
 logger = logging.getLogger(__name__)
+
+
+class LeetCodeResponseError(Exception):
+    """Raised when a 200 response doesn't have the expected GraphQL shape.
+
+    Covers both an explicit {"errors": [...]} body and unexpected/missing
+    fields in individual submissions — LeetCode's endpoint is unofficial and
+    undocumented, so either can change without notice.
+    """
 
 
 def _ensure_aware(dt: datetime) -> datetime:
@@ -66,7 +75,21 @@ async def fetch_recent_ac(
     )
     response.raise_for_status()
     data = response.json()
-    return cast(list[dict[str, object]], data["data"]["recentAcSubmissionList"])
+
+    if data.get("errors"):
+        raise LeetCodeResponseError(f"GraphQL errors: {data['errors']}")
+
+    payload = data.get("data")
+    if not isinstance(payload, dict) or "recentAcSubmissionList" not in payload:
+        raise LeetCodeResponseError(f"unexpected response shape: {data!r}")
+
+    submissions = payload["recentAcSubmissionList"]
+    if not isinstance(submissions, list):
+        raise LeetCodeResponseError(
+            f"recentAcSubmissionList is not a list: {submissions!r}"
+        )
+
+    return cast(list[dict[str, object]], submissions)
 
 
 async def sync_submissions(
@@ -102,8 +125,11 @@ async def sync_submissions(
     affected_slugs: set[str] = set()
 
     for raw in submissions_raw:
-        slug = str(raw["titleSlug"])
-        solved_at = datetime.fromtimestamp(int(str(raw["timestamp"])), tz=local_tz)
+        try:
+            slug = str(raw["titleSlug"])
+            solved_at = datetime.fromtimestamp(int(str(raw["timestamp"])), tz=local_tz)
+        except (KeyError, ValueError) as exc:
+            raise LeetCodeResponseError(f"malformed submission entry {raw!r}") from exc
 
         if slug not in known_slugs:
             continue

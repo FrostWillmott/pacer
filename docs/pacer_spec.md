@@ -35,7 +35,7 @@ Three Docker containers + one process on the host (outside Docker):
               │ HTTP polling (once a day, morning)
 ┌─────────────┴─────────────────────┐
 │ Host script (launchd, outside Docker) │
-│ Python + plyer / osascript        │
+│ Python + terminal-notifier        │
 │ → macOS Notification Center       │
 └────────────────────────────────────┘
 ```
@@ -48,10 +48,10 @@ the only part of the system that has to live outside Docker.
 
 | Component | Stack | Container |
 |---|---|---|
-| Backend | FastAPI + async SQLAlchemy 2 + APScheduler | `backend` |
+| Backend | FastAPI + async SQLAlchemy 2 | `backend` |
 | DB | PostgreSQL | `db` |
 | Frontend | minimal, read-only (today's queue + progress, no forms) | merged into `backend` (served as static files) |
-| Host notifier | Python script, `plyer` or direct `osascript`, launched via `launchd` | outside Docker |
+| Host notifier | Python script, `terminal-notifier`, launched via `launchd` (also triggers the daily job) | outside Docker |
 
 ### 3a. Configuration (`.env`)
 
@@ -64,7 +64,7 @@ ever gets published/forked):
 LEETCODE_USERNAME=Frost1981          # public profile, see 5.5
 
 # Study plan (5.4, 5.6, 5.4a)
-NEW_PROBLEMS_PER_DAY_TOTAL=1
+MAX_NEW_IN_FLIGHT=1
 CONSOLIDATION_INTERVALS=3,14,45      # days, one-time consolidation chain
 MAINTENANCE_INTERVAL_DAYS=90         # days, infinite tail after consolidation
 REVIEW_PER_DAY_CAP=4
@@ -174,7 +174,7 @@ Two independent curated lists, each with its own `order_index`:
   based on the actual event (not the calendar day — so skipped days don't
   throw off the rhythm):
   ```
-  NEW_PROBLEMS_PER_DAY_TOTAL = 1
+  MAX_NEW_IN_FLIGHT = 1
   ```
 - Determining "whose turn it is" needs the last-introduced track — hence
   `introduced_at` in the `progress` schema (see section 4): look at the
@@ -183,7 +183,7 @@ Two independent curated lists, each with its own `order_index`:
   ```sql
   introduced_count = SELECT COUNT(*) FROM progress WHERE status = 'introduced'
 
-  if introduced_count < NEW_PROBLEMS_PER_DAY_TOTAL:
+  if introduced_count < MAX_NEW_IN_FLIGHT:
       last_track = SELECT pr.track FROM progress p
                    JOIN problems pr ON pr.slug = p.problem_slug
                    ORDER BY p.introduced_at DESC LIMIT 1
@@ -347,14 +347,17 @@ Two blocks in one notification, "new" grouped by track for clarity:
 
 - A separate Python process, **outside Docker**, auto-started via `launchd`
   (a macOS agent that starts on user login).
-- Once a day (synced with the job in 5.7, with a small time buffer) calls
-  `GET /digest/today` on the backend container (`localhost:<port>`).
+- Same launchd agent also triggers the daily job itself
+  (`POST /internal/daily-job`, awaited) before calling
+  `GET /digest/today` on the backend container (`localhost:<port>`) — see
+  `docs/DECISIONS.md` for why this replaced a separate in-process scheduler.
 - If at least one of the blocks is non-empty → a native macOS push via
-  `plyer` (or `osascript -e 'display notification'` as a dependency-free
-  fallback), stating "N new / M for review" separately.
-- The push is clickable (opens `localhost:<port>` with the frontend) — to
-  be confirmed at implementation time whether `plyer`/`osascript` support a
-  click action on macOS.
+  `terminal-notifier`, naming the actual new/review problem titles (not just
+  a count).
+- The push is clickable (opens `localhost:<port>` with the frontend, where
+  each problem links to LeetCode) — resolved: plain `osascript -e 'display
+  notification'` has no click action, so `terminal-notifier` is used instead
+  (see `docs/DECISIONS.md`).
 
 ### 5.9. Minimal frontend (read-only)
 
@@ -446,7 +449,7 @@ Two blocks in one notification, "new" grouped by track for clarity:
 4. Does the push need to be clickable (opening the frontend on click), or
    is a plain text notification with the problem list enough?
 5. ~~New-problem quotas and review cap~~ — **closed:**
-   `NEW_PROBLEMS_PER_DAY_TOTAL=1` (algo/sql alternating by `introduced_at`,
+   `MAX_NEW_IN_FLIGHT=1` (algo/sql alternating by `introduced_at`,
    not simultaneous), `CONSOLIDATION_INTERVALS=[3,14,45]` (2 reviews after
    the solve, not 3), true onboarding average `1+2=3/day`,
    `REVIEW_PER_DAY_CAP=4` — a buffer for peak days, not the average itself.

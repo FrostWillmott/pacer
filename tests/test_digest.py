@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -114,6 +115,64 @@ async def test_introduce_fallback_when_primary_track_exhausted(
     new_rows = [r for r in rows if r.status == Status.introduced]
     assert len(new_rows) == 1
     assert new_rows[0].problem_slug == "valid-anagram"
+
+
+@pytest.mark.asyncio
+async def test_review_due_today_at_14h_visible_in_morning_digest(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """A review due today at 14:00 (settings.tz) must show up in an 08:00 poll.
+
+    Regression test for the date-cast boundary: comparing raw timestamps
+    against datetime.now() would hide this until the clock reaches 14:00.
+    """
+    tz_settings = settings.model_copy(update={"tz": "Europe/Moscow"})
+    moscow = ZoneInfo("Europe/Moscow")
+    today = date(2025, 6, 15)
+
+    session.add(_problem("two-sum", Track.algo, 1))
+    session.add(
+        _progress(
+            "two-sum",
+            status=Status.learning,
+            introduced_at=datetime(2025, 6, 1, tzinfo=moscow),
+            interval_index=0,
+            next_review_at=datetime(2025, 6, 15, 14, 0, tzinfo=moscow),
+        )
+    )
+    await session.flush()
+
+    digest = await build_digest(session, tz_settings, today)
+
+    assert [p.slug for p in digest.review] == ["two-sum"]
+    assert digest.review_overdue_total == 1
+
+
+@pytest.mark.asyncio
+async def test_review_due_tomorrow_just_after_midnight_not_yet_visible(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """A review due 00:30 tomorrow (settings.tz) must not appear in today's digest."""
+    tz_settings = settings.model_copy(update={"tz": "Europe/Moscow"})
+    moscow = ZoneInfo("Europe/Moscow")
+    today = date(2025, 6, 15)
+
+    session.add(_problem("two-sum", Track.algo, 1))
+    session.add(
+        _progress(
+            "two-sum",
+            status=Status.learning,
+            introduced_at=datetime(2025, 6, 1, tzinfo=moscow),
+            interval_index=0,
+            next_review_at=datetime(2025, 6, 16, 0, 30, tzinfo=moscow),
+        )
+    )
+    await session.flush()
+
+    digest = await build_digest(session, tz_settings, today)
+
+    assert digest.review == []
+    assert digest.review_overdue_total == 0
 
 
 @pytest.mark.asyncio

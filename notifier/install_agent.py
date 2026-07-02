@@ -17,34 +17,18 @@ import argparse
 import plistlib
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
+from _env import read_env
+
 LABEL = "com.pacer.notifier"
-# The backend's daily job runs at DIGEST_TIME; fire the notifier a couple of
-# minutes later so the digest it polls already reflects today's run.
-NOTIFIER_BUFFER_MIN = 2
 LAUNCHCTL = "/bin/launchctl"
 
 
-def _read_env(env_path: Path) -> dict[str, str]:
-    env: dict[str, str] = {}
-    if not env_path.exists():
-        return env
-    for raw in env_path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        env[key.strip()] = value.strip()
-    return env
-
-
-def _notifier_time(digest_time: str) -> tuple[int, int]:
-    fire = datetime.strptime(digest_time, "%H:%M") + timedelta(
-        minutes=NOTIFIER_BUFFER_MIN
-    )
-    return fire.hour, fire.minute
+def _parse_time(digest_time: str) -> tuple[int, int]:
+    parsed = datetime.strptime(digest_time, "%H:%M")
+    return parsed.hour, parsed.minute
 
 
 def _agent_path() -> Path:
@@ -103,8 +87,8 @@ def main() -> None:
         print(f"Removed {agent_path}")
         return
 
-    digest_time = _read_env(project_root / ".env").get("DIGEST_TIME", "08:00")
-    hour, minute = _notifier_time(digest_time)
+    digest_time = read_env(project_root / ".env").get("DIGEST_TIME", "08:00")
+    hour, minute = _parse_time(digest_time)
 
     agent_path.parent.mkdir(parents=True, exist_ok=True)
     _unload(agent_path)  # no-op if not currently loaded
@@ -113,8 +97,7 @@ def main() -> None:
 
     print(
         f"Installed {agent_path}\n"
-        f"Fires daily at {hour:02d}:{minute:02d} "
-        f"(DIGEST_TIME={digest_time} + {NOTIFIER_BUFFER_MIN}m)."
+        f"Fires daily at {hour:02d}:{minute:02d} (DIGEST_TIME={digest_time})."
     )
 
 
