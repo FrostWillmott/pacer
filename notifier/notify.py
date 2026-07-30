@@ -8,6 +8,13 @@ steps run from one launchd agent, in order, so there's no race between "job
 ran" and "digest reflects the job" — see docs/DECISIONS.md for why a
 two-agent buffered design was dropped.
 
+The launchd agent fires both on the DIGEST_TIME calendar schedule and on
+launchd load (login/reboot/`docker` daemon coming up), so a day where the
+scheduled time was missed entirely (machine off, not merely asleep — see
+docs/DECISIONS.md) still gets a same-day catch-up run once the machine is
+back. A local state file (`_STATE_FILE_NAME`) tracks whether today's job
+already ran, so the extra RunAtLoad trigger doesn't double-run it.
+
 Requires `terminal-notifier` on the host (`brew install terminal-notifier`):
 plain `osascript -e 'display notification'` has no click-to-open action, and
 we want a click on the notification to land on the digest page.
@@ -24,12 +31,18 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
 from _env import read_env
 
 _NOTIFIER_GROUP = "com.pacer.notifier"
+
+# Persists the date of the last successfully-triggered daily job, next to this
+# checkout (not /tmp — must survive whatever /tmp cleanup runs across a
+# reboot, which is exactly the scenario this file exists to handle).
+_STATE_FILE_NAME = ".pacer-notifier-last-run"
 
 # On wake from overnight sleep, launchd fires this agent "as soon as
 # possible" — which can be before Docker Desktop's VM has finished resuming
@@ -94,11 +107,38 @@ def _wait_for_backend(base_url: str) -> bool:
         time.sleep(_BACKEND_WAIT_INTERVAL)
 
 
+def _last_run_date(state_path: Path) -> date | None:
+    try:
+        return date.fromisoformat(state_path.read_text().strip())
+    except (OSError, ValueError):
+        return None  # missing, unreadable, or corrupt — treat as "never ran"
+
+
+def _record_run_date(state_path: Path, today: date) -> None:
+    try:
+        state_path.write_text(today.isoformat())
+    except OSError as exc:
+        print(f"pacer notifier: failed to write state file — {exc}", file=sys.stderr)
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent
     env = read_env(project_root / ".env")
     port = env.get("BACKEND_PORT", "8000")
     base_url = f"http://localhost:{port}"
+
+    now = datetime.now()
+    today = now.date()
+    state_path = project_root / _STATE_FILE_NAME
+
+    if _last_run_date(state_path) == today:
+        return  # RunAtLoad firing again the same day the job already ran — no-op
+
+    scheduled_time = datetime.strptime(env.get("DIGEST_TIME", "08:00"), "%H:%M").time()
+    if now.time() < scheduled_time:
+        # RunAtLoad fired ahead of today's DIGEST_TIME (a normal login/reboot,
+        # not a missed-schedule catch-up) — let the calendar trigger handle it.
+        return
 
     if not _wait_for_backend(base_url):
         print(
@@ -116,6 +156,10 @@ def main() -> None:
         print(f"pacer notifier: daily-job trigger failed — {exc}", file=sys.stderr)
         _notify("daily job failed to run — check backend logs")
         return
+
+    # Job ran — record it before the digest/notification step so a failure
+    # there doesn't cause a spurious re-run of the job on the next trigger.
+    _record_run_date(state_path, today)
 
     try:
         response = httpx.get(f"{base_url}/digest/today", timeout=5.0)

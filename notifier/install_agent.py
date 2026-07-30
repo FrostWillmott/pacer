@@ -5,6 +5,12 @@ Everything is derived from this checkout and `.env`, so the notifier's fire
 time stays in sync with DIGEST_TIME and the paths never need hand-editing.
 Re-run after changing DIGEST_TIME to resync the schedule.
 
+The agent is also set to RunAtLoad, so a day where DIGEST_TIME was missed
+because the machine was fully off (not merely asleep) gets a catch-up run at
+the next login/reboot; notify.py itself gates that extra trigger so it's a
+no-op on an ordinary login that happens after today's job already ran, or
+before DIGEST_TIME even arrives.
+
     uv run python notifier/install_agent.py             # install/refresh + load
     uv run python notifier/install_agent.py --uninstall # unload + remove
 
@@ -44,7 +50,10 @@ def _build_plist(project_root: Path, hour: int, minute: int) -> bytes:
         ],
         "StartCalendarInterval": {"Hour": hour, "Minute": minute},
         "StandardErrorPath": "/tmp/pacer-notifier.err",  # noqa: S108
-        "RunAtLoad": False,
+        # Catch-up run for a DIGEST_TIME missed while the machine was fully
+        # off — notify.py's own date/time gate makes this safe to also fire
+        # on an ordinary login (see module docstring).
+        "RunAtLoad": True,
     }
     return plistlib.dumps(data)
 
