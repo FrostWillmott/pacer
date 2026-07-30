@@ -1,7 +1,7 @@
 # pacer
 
 A personal LeetCode spaced-repetition tracker. It decides what to solve each day
-across two tracks — **NeetCode 150** (algorithms) and **SQL 50** — paces the
+across two tracks — **LeetCode Top Interview 150** (algorithms) and **SQL 50** — paces the
 introduction of new problems, and schedules review of solved ones via spaced
 repetition. Solved problems are pulled automatically from LeetCode, and a native
 macOS notification is fired every morning with the day's digest.
@@ -44,7 +44,7 @@ cp .env.example .env          # set POSTGRES_PASSWORD, LEETCODE_USERNAME, review
 # 2. Start backend + DB (backend runs `alembic upgrade head` on startup)
 docker compose up -d
 
-# 3. Seed the two curated problem lists (NeetCode 150 + SQL 50)
+# 3. Seed the two curated problem lists (Top Interview 150 + SQL 50)
 docker compose exec backend uv run python scripts/seed.py
 
 # 4. (macOS) Install the morning notification agent — see below

@@ -142,14 +142,12 @@ recomputed from scratch from `submissions`.
 
 Two independent curated lists, each with its own `order_index`:
 
-- **Track `algo`:** NeetCode 150 — Blind 75 + categorization into 18
-  patterns and the canonical study order (Arrays & Hashing → Two Pointers →
-  Sliding Window → Stack → Binary Search → Linked List → Trees → Tries →
-  Heap → Backtracking → Graphs → 1D DP → Intervals → Greedy → Advanced
-  Graphs → 2D DP → Bit Manipulation → Math & Geometry).
-- **Track `sql`:** **LeetCode SQL 50** — LeetCode's own official study plan
-  (not a community list), grouped by topic: Select/Where → Joins →
-  Aggregation → Sorting/Grouping → Advanced Select/Join → Subqueries →
+- **Track `algo`:** defined in `app/problem_sets.py` (`ALGO_PROBLEMS`) —
+  organized by pattern category (Array / String → Two Pointers → … →
+  Multidimensional DP).
+- **Track `sql`:** defined in `app/problem_sets.py` (`SQL_PROBLEMS`) —
+  LeetCode's official SQL study plan, grouped by topic: Select/Where →
+  Joins → Aggregation → Sorting/Grouping → Advanced Select/Join → Subqueries →
   Window Functions. Given 4 Database + 3 Pandas problems are already solved
   (visible on the profile) — this isn't starting from zero, it's extending
   the track.
@@ -206,7 +204,7 @@ Two independent curated lists, each with its own `order_index`:
   fully to the remaining track.
 - **Natural track completion:** SQL 50 (50 problems) at a pace of 0.5/day
   (alternating, not 1/day per track) finishes in about **14 weeks**;
-  NeetCode 150 finishes in about **10 months**. After that, all further
+  The algo track finishes in about **10 months**. After that, all further
   introduction goes to the algo track without alternation (thanks to the
   fallback above) — no separate "SQL is done, switch over" logic needed,
   it's a side effect of the same query.
@@ -455,7 +453,7 @@ Two blocks in one notification, "new" grouped by track for clarity:
    `REVIEW_PER_DAY_CAP=4` — a buffer for peak days, not the average itself.
    All of these values now live in `.env` (3a), not in the code.
 6. The exact list of SQL 50 slugs — I'll collect it as a hardcoded list
-   when writing the seed script, same as NeetCode 150 (this is data, not
+   when writing the seed script, same as the algo track (this is data, not
    per-user configuration — it stays in code, not in `.env`). Nothing
    needed from you here, just flagging this is still pending at the code
    stage, not now.

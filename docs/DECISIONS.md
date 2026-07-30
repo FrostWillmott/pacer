@@ -93,6 +93,33 @@ starting the backend ~8s into the poll loop completes successfully instead
 of failing immediately; a backend that never comes up within the window
 still fails, cleanly, after the deadline.
 
+**The launchd agent also fires on `RunAtLoad`, gated by a same-day
+state file in `notify.py`, rather than relying on `StartCalendarInterval`
+alone.**
+
+`StartCalendarInterval` only coalesces a fire missed while the machine was
+*asleep* (see above); if the machine is fully powered off across
+`DIGEST_TIME`, launchd simply drops that occurrence — the notification and
+the day's `introduce_if_needed` call never happen, and nothing catches up
+automatically. `RunAtLoad` (fires on every agent load: login, reboot, or
+`launchctl load`) turns the next boot into a catch-up opportunity, but on
+its own it would also fire on an ordinary boot that happens *before*
+`DIGEST_TIME`, or a second time on the same day after the calendar trigger
+already ran (e.g. a restart later that day) — either would double-run
+`daily_job` or notify too early. `notify.py` resolves this itself rather
+than in the plist: it records the date of the last successfully-triggered
+job in a local state file and, on each invocation, no-ops if that date is
+today, or if the current time hasn't reached `DIGEST_TIME` yet. This keeps
+the "when is it safe to actually run" decision in one place (readable,
+testable Python) instead of split across plist keys and shell conditionals.
+
+Rejected: a `StartInterval` (fire every N minutes, self-check each time)
+instead of `RunAtLoad` + calendar. That trades one problem for a noisier
+one — the agent would wake and hit `/health` every N minutes all day, every
+day, for a catch-up scenario that in practice is rare (the machine has to be
+*off*, not asleep, across `DIGEST_TIME`), and it drops the property that a
+normal day only ever triggers the job exactly once, at a known time.
+
 ## Data model
 
 **`submissions` (append-only log) and `progress` (computed, overwritten) are
@@ -132,7 +159,7 @@ than leaving it null and special-casing the query.
 
 **`problems.order_index` is unique within track, not globally.**
 
-The two curated lists (NeetCode 150, SQL 50) are independent study plans with
+The two curated lists (defined in `app/problem_sets.py`) are independent study plans with
 independent orderings. A global ordering would force an arbitrary interleave
 decision between two unrelated curricula for no benefit, since every query
 that uses `order_index` already filters by `track` first.
@@ -231,7 +258,7 @@ day-scoped counter that resets at midnight.
 inline in `introduce_if_needed`, not a separate "track finished" check
 elsewhere.**
 
-SQL 50 (50 problems) will exhaust well before NeetCode 150 (150 problems).
+The SQL track (50 problems) will exhaust well before the algo track (150 problems).
 Without a fallback, once SQL is exhausted, alternation would keep trying to
 introduce a SQL problem, find none, and introduce nothing every other day —
 silently halving the intro rate instead of continuing at full pace on the
@@ -345,7 +372,7 @@ reads `BACKEND_PORT` and `DIGEST_TIME` from the same `.env` file directly
 (not a second config file) specifically so the port/time can't be changed in
 one place and forgotten in the other.
 
-**The two curated problem-list slugs (NeetCode 150, SQL 50) are hardcoded in
+**The two curated problem-list slugs (see `app/problem_sets.py`) are hardcoded in
 `scripts/seed.py`, not put in `.env` or the DB seeded from a remote source.**
 
 This is data, not per-user configuration — every fork of this tool would use

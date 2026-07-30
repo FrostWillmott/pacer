@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 ## Project
 
 Personal LeetCode spaced-repetition tracker. Decides what to solve each day across
-two tracks (NeetCode 150 algo + SQL 50), paces new problems, and tracks solved ones
+two tracks (algo + sql, defined in `app/problem_sets.py`), paces new problems, and tracks solved ones
 via spaced repetition. Pulls solved problems automatically from LeetCode, sends a
 macOS push notification every morning. Runs locally on Docker (auto-start on boot).
 
