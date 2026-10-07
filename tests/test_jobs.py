@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app import scheduler
+from app import jobs
 from app.config import Settings
 from app.db.models import Base, Difficulty, Problem, Progress, Status, Track
 from app.services.sync import LeetCodeResponseError
@@ -77,8 +77,8 @@ def _wire(
     settings: Settings,
     fetch_result: list[dict[str, object]] | Exception,
 ) -> None:
-    monkeypatch.setattr(scheduler, "get_session_factory", lambda: session_factory)
-    monkeypatch.setattr(scheduler, "get_settings", lambda: settings)
+    monkeypatch.setattr(jobs, "get_session_factory", lambda: session_factory)
+    monkeypatch.setattr(jobs, "get_settings", lambda: settings)
 
     async def _fake_fetch(
         username: str, *, limit: int = 20, client: httpx.AsyncClient
@@ -87,7 +87,7 @@ def _wire(
             raise fetch_result
         return fetch_result
 
-    monkeypatch.setattr(scheduler, "fetch_recent_ac", _fake_fetch)
+    monkeypatch.setattr(jobs, "fetch_recent_ac", _fake_fetch)
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_daily_job_introduces_when_nothing_to_sync(
 
     _wire(monkeypatch, session_factory, daily_job_settings, fetch_result=[])
 
-    await scheduler.daily_job()
+    await jobs.daily_job()
 
     async with session_factory() as session:
         rows = (await session.execute(select(Progress))).scalars().all()
@@ -141,7 +141,7 @@ async def test_daily_job_syncs_before_introducing_in_one_transaction(
         fetch_result=[_raw("two-sum", solved_at)],
     )
 
-    await scheduler.daily_job()
+    await jobs.daily_job()
 
     async with session_factory() as session:
         rows = {
@@ -169,7 +169,7 @@ async def test_daily_job_swallows_http_error_and_does_not_introduce(
         fetch_result=httpx.ConnectError("connection refused"),
     )
 
-    await scheduler.daily_job()  # must not raise
+    await jobs.daily_job()  # must not raise
 
     async with session_factory() as session:
         rows = (await session.execute(select(Progress))).scalars().all()
@@ -193,7 +193,7 @@ async def test_daily_job_swallows_malformed_leetcode_response(
         fetch_result=LeetCodeResponseError("GraphQL errors: [...]"),
     )
 
-    await scheduler.daily_job()  # must not raise
+    await jobs.daily_job()  # must not raise
 
     async with session_factory() as session:
         rows = (await session.execute(select(Progress))).scalars().all()

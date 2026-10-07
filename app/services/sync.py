@@ -3,7 +3,7 @@
 recentAcSubmissionList is an undocumented, unofficial LeetCode endpoint.
 No authentication required; the profile must be public. Fields and
 availability can change without notice. All LeetCode HTTP communication is
-isolated to this module — app/scheduler.py is its sole consumer.
+isolated to this module — app/jobs.py is its sole consumer.
 """
 
 from __future__ import annotations

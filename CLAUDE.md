@@ -8,8 +8,9 @@ two tracks (algo + sql, defined in `app/problem_sets.py`), paces new problems, a
 via spaced repetition. Pulls solved problems automatically from LeetCode, sends a
 macOS push notification every morning. Runs locally on Docker (auto-start on boot).
 
-Stack: FastAPI + async SQLAlchemy 2.0 + asyncpg + PostgreSQL + Alembic + APScheduler 4.x.
-Package manager: uv. Host notifier: Python script via launchd + osascript.
+Stack: FastAPI + async SQLAlchemy 2.0 + asyncpg + PostgreSQL + Alembic.
+Package manager: uv. Host notifier: Python script via launchd + terminal-notifier
+(also triggers the daily job via POST /internal/daily-job).
 
 ## Active rule modules
 
@@ -26,7 +27,7 @@ LeetCode GraphQL). No other module may import from it.
 ## Commands
 
 ```bash
-make install   # uv sync --all-extras + pre-commit install
+make install   # uv sync + pre-commit install
 make check     # lint + type + test — run before finishing any task
 make fix       # ruff --fix + format
 make test      # uv run pytest tests/ -v
@@ -47,8 +48,9 @@ docker compose exec backend uv run python scripts/seed.py
   alternation. NULL breaks PostgreSQL's DESC sort. Ahead-of-pace solves use `solved_at`.
 - **`status='review'` does not exist**: the review queue is a query
   (`next_review_at::date <= today AND status != 'introduced'`), not a stored status.
-- **Scheduler writes, GET reads**: `introduce_if_needed()` is called by the APScheduler
-  daily job, never by `GET /digest/today`. Keeps the endpoint side-effect-free.
+- **Scheduler writes, GET reads**: `introduce_if_needed()` is called by `daily_job`
+  (triggered via `POST /internal/daily-job`), never by `GET /digest/today`. Keeps
+  the endpoint side-effect-free.
 - **Date-cast in review query**: `cast(next_review_at, Date) <= today` prevents a review
   due at 14:00 from not appearing until the next day.
 - **Track alternation first-call default**: if `progress` is empty → algo first.
