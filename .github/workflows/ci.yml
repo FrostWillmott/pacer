@@ -10,9 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --all-extras
+      - run: uv sync
       - name: Lint + type + test (SQLite)
         run: make check
+      - name: Coverage (fails under 70%)
+        run: make coverage
 
   test-postgres:
     runs-on: ubuntu-latest
@@ -33,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --all-extras
+      - run: uv sync
       - name: Test against Postgres
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://pacer:pacer@localhost:5432/pacer_test
