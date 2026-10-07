@@ -28,7 +28,7 @@ strict = true
 dev = [
     # Pinned to match the ruff-pre-commit rev in .pre-commit-config.yaml so the
     # CI/`make check` ruff and the pre-commit ruff enforce the same rule codes.
-    "ruff==0.15.20",
+    "ruff==0.16.10",
     "mypy>=1.16.0",
     "pre-commit>=4.2.0",
     "pytest>=8.4.0",
