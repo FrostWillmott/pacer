@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-Personal tool (not portfolio, not public, no external hosting). Acts as a
+Acts as a
 mentor: it **decides for you** what to solve today — across two tracks
 (algorithms + SQL), pacing new problems from curated lists while tracking
 already-solved ones with review dates via spaced repetition. The user doesn't
@@ -24,7 +24,7 @@ Three Docker containers + one process on the host (outside Docker):
 │                                               │
 │  ┌──────────┐   ┌──────────────────┐        │
 │  │ frontend │──▶│ backend           │        │
-│  │ (min UI) │   │ FastAPI + APScheduler │    │
+│  │ (min UI) │   │ FastAPI + SQLAlchemy 2 │   │
 │  └──────────┘   └─────────┬────────┘        │
 │                            │                 │
 │                  ┌─────────▼────────┐        │
@@ -335,8 +335,8 @@ Two blocks in one notification, "new" grouped by track for clarity:
   `maintenance` is **not** excluded from this query (unlike the earlier
   version with `mastered`) — that's the entire point of the infinite tail —
   plus the total overdue count separately, for backlog visibility.
-- An APScheduler job in `backend`, cron trigger in the morning (default
-  08:00, macOS system time).
+- The job runs via `POST /internal/daily-job`, triggered by the host `launchd`
+  agent at `DIGEST_TIME` (default 08:00, macOS system time) — see 5.8.
 - The result is assembled into `GET /digest/today` →
   `{"new": {"algo": [...], "sql": [...]}, "review": [...], "review_overdue_total": N}`,
   which the host script polls.

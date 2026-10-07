@@ -67,7 +67,7 @@ async def introduce_if_needed(
 ) -> None:
     """Insert a progress row for one new problem if the quota allows it.
 
-    Called by daily_job (app/scheduler.py), not by the GET endpoint — keeps
+    Called by daily_job (app/jobs.py), not by the GET endpoint — keeps
     the endpoint side-effect-free so the notifier can safely poll it multiple
     times.
     """

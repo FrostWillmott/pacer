@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.scheduler import daily_job
+from app.jobs import daily_job
 
 router = APIRouter()
 
