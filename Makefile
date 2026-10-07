@@ -21,7 +21,7 @@ help:
 	@echo "  make ci            - Full CI check locally"
 
 install:
-	uv sync --all-extras
+	uv sync
 
 install-hooks:
 	uv run pre-commit install

@@ -1,10 +1,11 @@
 # pacer
 
-A personal LeetCode spaced-repetition tracker. It decides what to solve each day
+A FastAPI spaced-repetition scheduling service with an integration to an
+undocumented external API (LeetCode). It decides what to solve each day
 across two tracks — **LeetCode Top Interview 150** (algorithms) and **SQL 50** — paces the
 introduction of new problems, and schedules review of solved ones via spaced
-repetition. Solved problems are pulled automatically from LeetCode, and a native
-macOS notification is fired every morning with the day's digest.
+repetition. Solved problems are pulled automatically via that integration, and
+a native macOS notification is fired every morning with the day's digest.
 
 Runs locally on Docker (auto-starts on boot); a small host script delivers the
 notification.
@@ -110,7 +111,7 @@ time. To remove it: `make uninstall-notifier`.
 ## Development
 
 ```bash
-make install   # uv sync --all-extras + install pre-commit hooks
+make install   # uv sync + install pre-commit hooks
 make check     # lint + format check + type check + tests — run before finishing
 make fix       # ruff --fix + format
 make test      # pytest
@@ -129,4 +130,4 @@ TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/db \
 Lightweight 3-layer split: `routers/` (HTTP only) → `services/` (business logic) →
 async SQLAlchemy. `app/services/sync.py` is deliberately isolated as a fragile
 external integration (LeetCode's undocumented GraphQL API): all LeetCode HTTP
-communication lives there, and `app/scheduler.py` is its sole consumer.
+communication lives there, and `app/jobs.py` is its sole consumer.
