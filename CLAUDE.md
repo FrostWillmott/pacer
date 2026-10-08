@@ -14,7 +14,9 @@ Package manager: uv. Host notifier: Python script via launchd + terminal-notifie
 
 ## Active rule modules
 
-`python-core`, `backend-fastapi`, `testing`, `workflow-scaffolding`
+`python-core`, `backend-fastapi`, `testing`, `workflow-scaffolding` from
+[developer-os `rules-library/`](https://github.com/FrostWillmott/developer-os/tree/main/rules-library)
+(rule levels in `_LEVELS.md` there). Not vendored into this repo.
 
 ## Architecture divergences
 
