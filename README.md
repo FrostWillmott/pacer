@@ -131,3 +131,7 @@ Lightweight 3-layer split: `routers/` (HTTP only) → `services/` (business logi
 async SQLAlchemy. `app/services/sync.py` is deliberately isolated as a fragile
 external integration (LeetCode's undocumented GraphQL API): all LeetCode HTTP
 communication lives there, and `app/jobs.py` is its sole consumer.
+
+**How this was built.** Spec ([docs/pacer_spec.md](docs/pacer_spec.md)), ADRs
+([docs/DECISIONS.md](docs/DECISIONS.md)) and acceptance criteria are mine; implementation with Claude Code, every change reviewed by hand before commit.
+The agent configuration lives in [developer-os](https://github.com/FrostWillmott/developer-os).
