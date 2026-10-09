@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # Branch pushes are covered by pull_request; push-on-every-branch ran CI twice per PR.
   push:
+    branches: [master]
   pull_request:
 
 permissions:
@@ -9,7 +11,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -20,7 +22,7 @@ jobs:
         run: make coverage
 
   test-postgres:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
